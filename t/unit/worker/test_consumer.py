@@ -7,12 +7,14 @@ from unittest.mock import MagicMock, Mock, call, patch
 import pytest
 from amqp import ChannelError
 from billiard.exceptions import RestartFreqExceeded
+from kombu.utils.limits import TokenBucket
 
 from celery import bootsteps
 from celery.contrib.testing.mocks import ContextMock
 from celery.exceptions import WorkerShutdown, WorkerTerminate
 from celery.utils.collections import LimitedSet
 from celery.utils.quorum_queues import detect_quorum_queues
+from celery.utils.ratelimit import RedisTokenBucket
 from celery.worker.consumer.agent import Agent
 from celery.worker.consumer.consumer import CANCEL_TASKS_BY_DEFAULT, CLOSE, TERMINATE, Consumer
 from celery.worker.consumer.gossip import Gossip
@@ -198,6 +200,30 @@ class test_Consumer(ConsumerTestCase):
         c.hub = Mock(name='hub')
         c.on_send_event_buffered()
         c.hub._ready.add.assert_called_with(c._flush_events)
+
+    def test_bucket_for_task_local_by_default(self):
+        self.add.rate_limit = '10/m'
+        c = self.get_consumer()
+        bucket = c.bucket_for_task(self.add)
+        assert isinstance(bucket, TokenBucket)
+        assert bucket.fill_rate == pytest.approx(10 / 60)
+
+    def test_bucket_for_task_distributed(self):
+        self.app.conf.worker_distributed_rate_limit_backend = (
+            'redis://localhost:6379/0')
+        self.add.rate_limit = '10/m'
+        c = self.get_consumer()
+        bucket = c.bucket_for_task(self.add)
+        assert isinstance(bucket, RedisTokenBucket)
+        assert bucket.fill_rate == pytest.approx(10 / 60)
+        assert bucket.key.endswith(self.add.name)
+        # the client is reused between buckets
+        assert c.bucket_for_task(self.add).client is bucket.client
+
+    def test_bucket_for_task_no_limit(self):
+        self.add.rate_limit = None
+        c = self.get_consumer()
+        assert c.bucket_for_task(self.add) is None
 
     def test_schedule_bucket_request(self):
         c = self.get_consumer()

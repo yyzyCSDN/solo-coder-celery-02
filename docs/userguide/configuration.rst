@@ -3227,6 +3227,32 @@ Default: Disabled (rate limits enabled).
 
 Disable all rate limits, even if tasks has explicit rate limits set.
 
+.. setting:: worker_distributed_rate_limit_backend
+
+``worker_distributed_rate_limit_backend``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Default: :const:`None` (rate limits are enforced per worker process).
+
+URL of a Redis server used to enforce task rate limits *globally*,
+across all worker processes and nodes, for example
+``'redis://localhost:6379/0'``.
+
+When set, every task with a :attr:`~celery.app.task.Task.rate_limit`
+draws tokens from a single token bucket stored in Redis (one bucket per
+task name), so the configured rate becomes the total cluster-wide rate
+instead of a per-process one.  Tokens are refilled at the configured
+rate and never stockpile, so tasks are released evenly and a worker
+that was paused or offline cannot release a burst when it comes back.
+Workers never hold quota, so if a worker goes offline there is nothing
+to reclaim: the remaining workers immediately share the full rate.
+
+If the Redis server cannot be reached, rate limited tasks are delayed
+and retried shortly instead of being released without limit (the bucket
+fails closed).
+
+Requires the redis library to be installed (``pip install celery[redis]``).
+
 .. setting:: worker_state_db
 
 ``worker_state_db``

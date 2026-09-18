@@ -28,6 +28,7 @@ from celery.utils.functional import noop
 from celery.utils.log import get_logger
 from celery.utils.nodenames import gethostname
 from celery.utils.objects import Bunch
+from celery.utils.ratelimit import RedisTokenBucket, redis_client_from_url
 from celery.utils.text import truncate
 from celery.utils.time import humanize_seconds, rate
 from celery.worker import loops
@@ -209,6 +210,7 @@ class Consumer:
         # this contains a tokenbucket for each task type by name, used for
         # rate limits, or None if rate limits are disabled for that task.
         self.task_buckets = defaultdict(lambda: None)
+        self._rate_limit_backend_client = None
         self.reset_rate_limits()
 
         self.hub = hub
@@ -254,7 +256,21 @@ class Consumer:
 
     def bucket_for_task(self, type):
         limit = rate(getattr(type, 'rate_limit', None))
-        return TokenBucket(limit, capacity=1) if limit else None
+        if not limit:
+            return None
+        backend = self.app.conf.worker_distributed_rate_limit_backend
+        if backend:
+            return RedisTokenBucket(
+                limit, capacity=1,
+                client=self._get_rate_limit_backend_client(backend),
+                key=type.name,
+            )
+        return TokenBucket(limit, capacity=1)
+
+    def _get_rate_limit_backend_client(self, backend):
+        if self._rate_limit_backend_client is None:
+            self._rate_limit_backend_client = redis_client_from_url(backend)
+        return self._rate_limit_backend_client
 
     def reset_rate_limits(self):
         self.task_buckets.update(

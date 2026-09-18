@@ -319,6 +319,7 @@ NAMESPACES = Namespace(
         disable_rate_limits=Option(
             False, type='bool', old={'celery_disable_rate_limits'},
         ),
+        distributed_rate_limit_backend=Option(None, type='string'),
         deduplicate_successful_tasks=Option(
             False, type='bool'
         ),

@@ -30,6 +30,7 @@
     celery.signals
     celery.security
     celery.utils.debug
+    celery.utils.ratelimit
     celery.exceptions
     celery.loaders
     celery.loaders.app
